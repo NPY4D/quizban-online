@@ -408,6 +408,38 @@ input::placeholder{color:var(--mt)}
   .tl-step{min-width:36px}
   .tl-dot{width:28px;height:28px;font-size:.6rem}
 }
+
+/* ══ TURN-BASED GAME ══ */
+.cbtn-spectate{cursor:not-allowed;opacity:.7;position:relative}
+.cbtn-spectate:hover{transform:none!important;border-color:var(--bd)!important;background:rgba(22,22,53,.8)!important;box-shadow:none!important}
+.spectate-lock{margin-left:auto;font-size:.85rem;opacity:.5;flex-shrink:0}
+
+/* Spotlight bar */
+.spotlight-box{
+  border-radius:12px;padding:14px 18px;margin-bottom:14px;text-align:center;
+  animation:fadeUp .3s ease;font-size:1rem;font-weight:600;
+}
+.spotlight-me{
+  background:linear-gradient(135deg,rgba(124,58,237,.25),rgba(168,85,247,.15));
+  border:1px solid rgba(168,85,247,.4);color:var(--ac2);
+  border-radius:12px;padding:14px 18px;
+  box-shadow:0 0 20px rgba(124,58,237,.15);
+  animation:spotPulse 2s ease-in-out infinite;
+}
+@keyframes spotPulse{0%,100%{box-shadow:0 0 20px rgba(124,58,237,.15)}50%{box-shadow:0 0 30px rgba(124,58,237,.3)}}
+.spotlight-other{
+  background:rgba(22,22,53,.7);border:1px solid var(--bd);color:var(--tx);
+  border-radius:12px;padding:14px 18px;
+}
+.spotlight-other strong{color:var(--ac2)}
+
+/* Answering chip glow */
+.schip.answering{
+  border-color:var(--ac2);background:rgba(168,85,247,.15);
+  box-shadow:0 0 12px rgba(168,85,247,.25);
+  animation:chipPulse 1.5s ease-in-out infinite;
+}
+@keyframes chipPulse{0%,100%{box-shadow:0 0 8px rgba(168,85,247,.2)}50%{box-shadow:0 0 16px rgba(168,85,247,.4)}}
 </style>
 </head>
 <body>
@@ -603,6 +635,8 @@ input::placeholder{color:var(--mt)}
       </div>
     </div>
 
+    
+    <div id="g-spotlight" style="display:none;margin-bottom:10px"></div>
     <div id="g-next" style="display:none;text-align:center;margin-top:14px">
       <div id="host-next-btn" style="display:none">
         <button class="btn btn-primary" style="max-width:260px" onclick="sendNextQ()">ข้อถัดไป →</button>
@@ -985,9 +1019,7 @@ const QUESTION_BANK = {
   ],
 };
 
-/* ═══════════════════════════════════════
-   CATS
-═══════════════════════════════════════ */
+/* ═══════ CATS ═══════ */
 const CATS = [
   {id:'geography', name:'ภูมิศาสตร์',    icon:'🌍', bank:'geography'},
   {id:'history',   name:'ประวัติศาสตร์', icon:'📜', bank:'history'},
@@ -1009,9 +1041,16 @@ const CATS = [
   {id:'nature',    name:'ธรรมชาติ',      icon:'🌿', bank:'nature'},
 ];
 
-/* ═══════════════════════════════════════
-   STATE
-═══════════════════════════════════════ */
+/* ═══════ ITEMS ═══════ */
+const ITEMS_DEF = {
+  swap_question: { name:'เปลี่ยนคำถาม', icon:'🔄', desc:'เปลี่ยนคำถามใหม่' },
+  add_time:      { name:'เพิ่มเวลา',    icon:'⏰', desc:'+10 วินาที' },
+  half_choices:  { name:'ตัดตัวเลือก', icon:'✂️', desc:'ตัดตัวเลือกผิด 2 ตัว' },
+  freeze:        { name:'แช่แข็ง',      icon:'🧊', desc:'หยุดเวลาคนอื่น' },
+  steal_points:  { name:'ขโมยคะแนน',   icon:'💀', desc:'ขโมย 5 คะแนน' },
+};
+
+/* ═══════ STATE ═══════ */
 let S = {
   myId:null, myName:'', myAvatar:'😀',
   roomCode:null, isHost:false,
@@ -1020,110 +1059,85 @@ let S = {
   timerInterval:null, timerSec:20,
   answered:false, myAnswerIdx:-1,
   usedQ:{},
+  // current question answerer info
+  currentAnswererId: null,
+  currentAnswererName: '',
+  currentAnswererAvatar: '',
+  // local offline answer
+  _localAnswer: null, _localExp: '',
 };
-let ws = null, curAv = '😀';
+let ws=null, curAv='😀';
 
-/* ═══════════════════════════════════════
-   STARFIELD
-═══════════════════════════════════════ */
-(function buildStars(){
-  const c = document.getElementById('stars');
-  [{x:'10%',y:'20%',w:'400px',h:'300px',col:'rgba(124,58,237,1)'},
-   {x:'70%',y:'60%',w:'350px',h:'250px',col:'rgba(6,182,212,1)'},
-   {x:'40%',y:'80%',w:'300px',h:'200px',col:'rgba(168,85,247,1)'}
-  ].forEach(n=>{
-    const d=document.createElement('div');d.className='nebula';
-    d.style.cssText=`left:${n.x};top:${n.y};width:${n.w};height:${n.h};background:${n.col}`;
-    c.appendChild(d);
-  });
-  for(let i=0;i<120;i++){
-    const s=document.createElement('div');s.className='star';
-    const sz=Math.random()*2.5+0.5;
-    s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;width:${sz}px;height:${sz}px;--d:${2+Math.random()*4}s;--delay:${Math.random()*4}s;opacity:${Math.random()*.5+.1}`;
-    c.appendChild(s);
-  }
+/* ═══════ STARFIELD ═══════ */
+(function(){
+  const c=document.getElementById('stars');
+  [{x:'10%',y:'20%',w:'400px',h:'300px',col:'rgba(124,58,237,1)'},{x:'70%',y:'60%',w:'350px',h:'250px',col:'rgba(6,182,212,1)'},{x:'40%',y:'80%',w:'300px',h:'200px',col:'rgba(168,85,247,1)'}]
+  .forEach(n=>{const d=document.createElement('div');d.className='nebula';d.style.cssText=`left:${n.x};top:${n.y};width:${n.w};height:${n.h};background:${n.col}`;c.appendChild(d);});
+  for(let i=0;i<120;i++){const s=document.createElement('div');s.className='star';const sz=Math.random()*2.5+0.5;s.style.cssText=`left:${Math.random()*100}%;top:${Math.random()*100}%;width:${sz}px;height:${sz}px;--d:${2+Math.random()*4}s;--delay:${Math.random()*4}s;opacity:${Math.random()*.5+.1}`;c.appendChild(s);}
 })();
 
-/* ═══════════════════════════════════════
-   WEBSOCKET
-═══════════════════════════════════════ */
+/* ═══════ WS ═══════ */
 function connect(onOpen){
-  const proto = location.protocol==='https:'?'wss':'ws';
-  ws = new WebSocket(`${proto}://${location.host}`);
-  ws.onopen = ()=>{ setConn(true); if(onOpen)onOpen(); startPing(); };
-  ws.onmessage = e=>handleMsg(JSON.parse(e.data));
-  ws.onclose = ()=>{ setConn(false); setTimeout(tryReconnect,3000); };
-  ws.onerror = ()=>toast('❌ เชื่อมต่อไม่ได้');
+  const proto=location.protocol==='https:'?'wss':'ws';
+  ws=new WebSocket(`${proto}://${location.host}`);
+  ws.onopen=()=>{setConn(true);if(onOpen)onOpen();startPing();};
+  ws.onmessage=e=>handleMsg(JSON.parse(e.data));
+  ws.onclose=()=>{setConn(false);setTimeout(tryReconnect,3000);};
+  ws.onerror=()=>toast('❌ เชื่อมต่อไม่ได้');
 }
 let pingTimer=null;
-function startPing(){ clearInterval(pingTimer); pingTimer=setInterval(()=>wsSend({type:'ping'}),20000); }
-function tryReconnect(){ if(!S.roomCode)return; toast('🔄 กำลังเชื่อมต่อใหม่...'); connect(); }
+function startPing(){clearInterval(pingTimer);pingTimer=setInterval(()=>wsSend({type:'ping'}),20000);}
+function tryReconnect(){if(!S.roomCode)return;toast('🔄 กำลังเชื่อมต่อใหม่...');connect();}
 function setConn(ok){
   const bar=document.getElementById('conn-bar'),dot=document.getElementById('conn-dot'),txt=document.getElementById('conn-text');
-  dot.className='conn-dot '+(ok?'on':'off');
-  txt.textContent=ok?'เชื่อมต่อแล้ว':'การเชื่อมต่อขาด...';
-  bar.classList.toggle('show',!ok);
-  if(ok)setTimeout(()=>bar.classList.remove('show'),2000);
+  dot.className='conn-dot '+(ok?'on':'off');txt.textContent=ok?'เชื่อมต่อแล้ว':'การเชื่อมต่อขาด...';
+  bar.classList.toggle('show',!ok);if(ok)setTimeout(()=>bar.classList.remove('show'),2000);
 }
-function wsSend(obj){ if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(obj)); }
+function wsSend(obj){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(obj));}
 
-/* ═══════════════════════════════════════
-   MESSAGE HANDLER
-═══════════════════════════════════════ */
+/* ═══════ MESSAGES ═══════ */
 function handleMsg(msg){
   switch(msg.type){
     case 'joined': S.myId=msg.playerId; S.roomCode=msg.code; break;
-    case 'room_state':
-      S.room=msg.room; S.isHost=msg.room.hostId===S.myId;
-      routePhase(msg.room.phase); break;
+    case 'room_state': S.room=msg.room; S.isHost=msg.room.hostId===S.myId; routePhase(msg.room.phase); break;
     case 'draft_action_done': onDraftActionDone(msg); break;
     case 'loading_question': showLoadingQ(); break;
+    case 'request_host_question': onRequestHostQuestion(msg); break;
     case 'new_question': onNewQuestion(msg); break;
-    case 'player_answered': onPlayerAnswered(msg); break;
     case 'reveal_answer': onReveal(msg); break;
+    case 'item_effect': onItemEffect(msg); break;
     case 'toast': toast(msg.message); break;
     case 'error': toast('❌ '+msg.message); break;
     case 'pong': break;
   }
 }
 
-/* ═══════════════════════════════════════
-   PAGE ROUTING
-═══════════════════════════════════════ */
+/* ═══════ ROUTING ═══════ */
 function routePhase(phase){
   if(phase==='lobby')renderLobby();
   else if(phase==='draft')renderDraft();
-  else if(phase==='game'){showPage('game');renderGameBar();}
+  else if(phase==='game'){showPage('game');renderGameUI();}
   else if(phase==='results')renderResults();
 }
-function showPage(n){
-  document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
-  document.getElementById('pg-'+n).classList.add('on');
-  window.scrollTo(0,0);
-}
+function showPage(n){document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));document.getElementById('pg-'+n).classList.add('on');window.scrollTo(0,0);}
 
-/* ═══════════════════════════════════════
-   HOME
-═══════════════════════════════════════ */
+/* ═══════ HOME ═══════ */
 document.getElementById('av-row').addEventListener('click',e=>{
   const b=e.target.closest('.av-btn');if(!b)return;
-  document.querySelectorAll('.av-btn').forEach(x=>x.classList.remove('sel'));
-  b.classList.add('sel');curAv=b.dataset.av;
+  document.querySelectorAll('.av-btn').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');curAv=b.dataset.av;
 });
 function saveApiKey(){
   const v=document.getElementById('inp-api').value.trim();
   if(v&&!v.startsWith('sk-')){document.getElementById('api-err').textContent='Key ต้องขึ้นต้นด้วย sk-';return;}
-  S.apiKey=v;
-  if(v)localStorage.setItem('qb_api',v);else localStorage.removeItem('qb_api');
-  toast(v?'✅ บันทึก API Key':'📦 ลบ API Key แล้ว');
-  document.getElementById('api-err').textContent='';
+  S.apiKey=v;if(v)localStorage.setItem('qb_api',v);else localStorage.removeItem('qb_api');
+  toast(v?'✅ บันทึก API Key':'📦 ลบ API Key แล้ว');document.getElementById('api-err').textContent='';
 }
 if(S.apiKey)document.getElementById('inp-api').value=S.apiKey;
-function getName(){ return document.getElementById('inp-name').value.trim(); }
-function focusCode(){ document.getElementById('inp-code').focus(); }
+function getName(){return document.getElementById('inp-name').value.trim();}
+function focusCode(){document.getElementById('inp-code').focus();}
 
 function createRoom(){
-  const name=getName(); if(!name)return setErr('home-err','ใส่ชื่อก่อนนะ');
+  const name=getName();if(!name)return setErr('home-err','ใส่ชื่อก่อนนะ');
   S.myName=name;S.myAvatar=curAv;
   connect(()=>wsSend({type:'create_room',playerName:name,avatar:curAv}));
 }
@@ -1140,9 +1154,7 @@ function leaveRoom(){
   showPage('home');
 }
 
-/* ═══════════════════════════════════════
-   LOBBY
-═══════════════════════════════════════ */
+/* ═══════ LOBBY ═══════ */
 function renderLobby(){
   showPage('lobby');
   const room=S.room;
@@ -1152,14 +1164,10 @@ function renderLobby(){
   document.getElementById('guest-settings').style.display=S.isHost?'none':'block';
   document.getElementById('host-start-btn').style.display=S.isHost?'block':'none';
   document.getElementById('guest-wait').style.display=S.isHost?'none':'block';
-  if(!S.isHost){
-    document.getElementById('settings-display').innerHTML=
-      `คำถามต่อหัวข้อ: <strong>${room.settings.qPerCat}</strong> ข้อ &nbsp;|&nbsp; เวลาต่อข้อ: <strong>${room.settings.timePerQ}</strong> วิ`;
-  }
+  if(!S.isHost)document.getElementById('settings-display').innerHTML=`คำถามต่อหัวข้อ: <strong>${room.settings.qPerCat}</strong> ข้อ &nbsp;|&nbsp; เวลาต่อข้อ: <strong>${room.settings.timePerQ}</strong> วิ`;
   document.getElementById('lobby-players').innerHTML=room.players.map(p=>`
     <div class="pitem ${p.online===false?'offline':''}">
-      <div class="pitem-av">${p.avatar}</div>
-      <div class="pitem-name">${p.name}</div>
+      <div class="pitem-av">${p.avatar}</div><div class="pitem-name">${p.name}</div>
       <div class="pitem-tags">
         ${p.id===room.hostId?'<span class="tag tag-host">👑 Host</span>':''}
         ${p.id===S.myId?'<span class="tag tag-you">คุณ</span>':''}
@@ -1168,138 +1176,60 @@ function renderLobby(){
     </div>`).join('');
 }
 function sendSettings(){
-  wsSend({type:'update_settings',settings:{
-    qPerCat:parseInt(document.getElementById('s-qcount').value),
-    timePerQ:parseInt(document.getElementById('s-time').value),
-    apiKey:S.apiKey,
-  }});
+  wsSend({type:'update_settings',settings:{qPerCat:parseInt(document.getElementById('s-qcount').value),timePerQ:parseInt(document.getElementById('s-time').value),apiKey:S.apiKey}});
 }
 function startDraft(){
-  wsSend({type:'update_settings',settings:{
-    qPerCat:parseInt(document.getElementById('s-qcount').value),
-    timePerQ:parseInt(document.getElementById('s-time').value),
-    apiKey:S.apiKey,
-  }});
+  wsSend({type:'update_settings',settings:{qPerCat:parseInt(document.getElementById('s-qcount').value),timePerQ:parseInt(document.getElementById('s-time').value),apiKey:S.apiKey}});
   setTimeout(()=>wsSend({type:'start_draft'}),120);
 }
 
-/* ═══════════════════════════════════════
-   DRAFT — new logic:
-   Each player's turn = ban 1 THEN pick 1
-   draftPlayerIdx + draftSubAction from server
-═══════════════════════════════════════ */
+/* ═══════ DRAFT ═══════ */
 function renderDraft(){
   showPage('draft');
-  const room=S.room;
-  const n=room.players.length;
+  const room=S.room,n=room.players.length;
   const curPlayer=room.players[room.draftPlayerIdx];
   const isBan=room.draftSubAction==='ban';
   const isMyTurn=curPlayer&&curPlayer.id===S.myId;
-
-  // phase pill
   const pill=document.getElementById('d-phase-pill');
   pill.textContent=isBan?'🚫 แบนหัวข้อ':'✅ เลือกหัวข้อ';
   pill.className='phase-pill '+(isBan?'pp-ban':'pp-pick');
-
-  // turn card
-  document.getElementById('d-turn-name').innerHTML=isMyTurn
-    ?`<em>ตาของคุณ!</em>`
-    :`ตาของ <em>${curPlayer?.avatar} ${curPlayer?.name}</em>`;
-  document.getElementById('d-turn-hint').textContent=isMyTurn
-    ?(isBan?'กดหัวข้อที่ต้องการ แบน ก่อน จากนั้นจะเลือกหัวข้อ':'กดหัวข้อที่ต้องการ ตอบคำถาม')
-    :(isBan?`${curPlayer?.name} กำลังแบน...`:`${curPlayer?.name} กำลังเลือก...`);
+  document.getElementById('d-turn-name').innerHTML=isMyTurn?`<em>ตาของคุณ!</em>`:`ตาของ <em>${curPlayer?.avatar} ${curPlayer?.name}</em>`;
+  document.getElementById('d-turn-hint').textContent=isMyTurn?(isBan?'กดหัวข้อที่ต้องการ แบน ก่อน':'กดหัวข้อที่ต้องการ ตอบคำถาม'):(isBan?`${curPlayer?.name} กำลังแบน...`:`${curPlayer?.name} กำลังเลือก...`);
   document.getElementById('d-inst').textContent=isBan?'🚫 เลือกหัวข้อที่จะแบน':'✅ เลือกหัวข้อที่ต้องการ';
-
-  // progress summary
-  renderDraftTimeline(room);
-
-  // cat grid
+  renderDraftTimeline(room,n);
   document.getElementById('d-cats').innerHTML=CATS.map(cat=>{
-    const bn=room.bans.includes(cat.id),pk=room.picks.includes(cat.id);
-    const lk=bn||pk||!isMyTurn;
+    const bn=room.bans.includes(cat.id),pk=room.picks.includes(cat.id),lk=bn||pk||!isMyTurn;
     const hc=(isMyTurn&&!bn&&!pk)?(isBan?'hb':'hp'):'';
-    return `<div class="cat ${lk?'lk':''} ${bn?'is-ban':''} ${pk?'is-pk':''} ${hc}"
-      data-mark="${bn?'🚫':pk?'✅':''}"
-      onclick="${lk?'':'draftPick(\''+cat.id+'\')'}" >
-      <div class="ci">${cat.icon}</div><div class="cn">${cat.name}</div></div>`;
+    return `<div class="cat ${lk?'lk':''} ${bn?'is-ban':''} ${pk?'is-pk':''} ${hc}" data-mark="${bn?'🚫':pk?'✅':''}" onclick="${lk?'':'draftPick(\''+cat.id+'\')'}" ><div class="ci">${cat.icon}</div><div class="cn">${cat.name}</div></div>`;
   }).join('');
-
-  // side lists
-  renderDraftSides(room);
+  renderDraftSides(room,n);
 }
 
-function renderDraftTimeline(room){
-  // Show player turn order: who has done what, who's next
-  // Each "round" = one player doing ban+pick
-  // totalRounds = 5, players rotate
-  const n=room.players.length;
-  const totalTurns=room.totalRounds*n; // total player-turns if we did full rotation
-  // But we only do totalRounds picks, so max picks = 5
-  const el=document.getElementById('d-tl');
-
-  // Build sequence of (playerIdx, 'ban'|'pick') pairs in order
-  let seq=[];
-  let pidx=0,bCount=0,pCount=0;
-  while(pCount<room.totalRounds){
-    seq.push({pidx,action:'ban'});
-    seq.push({pidx,action:'pick'});
-    pidx=(pidx+1)%n;
-    pCount++;
-    bCount++;
-  }
-
-  // How many steps done?
+function renderDraftTimeline(room,n){
+  let seq=[];let pidx=0;
+  for(let r=0;r<room.totalRounds;r++){seq.push({pidx,action:'ban'});seq.push({pidx,action:'pick'});pidx=(pidx+1)%n;}
   const doneSteps=room.bans.length+room.picks.length;
-  // Current step index
-  // Map done steps to seq positions
-  let doneSeqIdx=0;
-  let bansDone=0,picksDone=0;
+  let seqDone=0,bd=0,pd=0;
   for(let i=0;i<seq.length;i++){
-    if(seq[i].action==='ban'&&bansDone<room.bans.length){bansDone++;doneSeqIdx=i+1;}
-    else if(seq[i].action==='pick'&&picksDone<room.picks.length){picksDone++;doneSeqIdx=i+1;}
+    if(seq[i].action==='ban'&&bd<room.bans.length){bd++;seqDone=i+1;}
+    else if(seq[i].action==='pick'&&pd<room.picks.length){pd++;seqDone=i+1;}
   }
-
   let html='';
   for(let i=0;i<seq.length;i++){
-    const s=seq[i];
-    const p=room.players[s.pidx];
-    const done=i<doneSeqIdx;
-    const current=i===doneSeqIdx;
-    const isBanStep=s.action==='ban';
-    let cls=current?'current':done?(isBanStep?'done-ban':'done-pick'):'';
-    const inner=done?(isBanStep?'🚫':'✅'):current?(p?.avatar||'?'):(isBanStep?'B':'P');
-    html+=`<div class="tl-step">
-      <div class="tl-dot ${cls}" title="${p?.name} ${s.action}">${inner}</div>
-      <div class="tl-label">${p?.name||''}</div>
-    </div>`;
-    if(i<seq.length-1) html+=`<div class="tl-line ${i<doneSeqIdx?'done':''}"></div>`;
+    const s=seq[i],p=room.players[s.pidx],done=i<seqDone,cur=i===seqDone,isBanStep=s.action==='ban';
+    let cls=cur?'current':done?(isBanStep?'done-ban':'done-pick'):'';
+    const inner=done?(isBanStep?'🚫':'✅'):cur?(p?.avatar||'?'):(isBanStep?'B':'P');
+    html+=`<div class="tl-step"><div class="tl-dot ${cls}" title="${p?.name} ${s.action}">${inner}</div><div class="tl-label">${p?.name||''}</div></div>`;
+    if(i<seq.length-1)html+=`<div class="tl-line ${i<seqDone?'done':''}"></div>`;
   }
-  el.innerHTML=html;
+  document.getElementById('d-tl').innerHTML=html;
 }
 
-function renderDraftSides(room){
-  // show who banned/picked each
-  const n=room.players.length;
-  // build full sequence to match bans/picks to player
-  let banSeq=[],pickSeq=[];
-  let pidx=0;
-  for(let r=0;r<room.totalRounds;r++){
-    banSeq.push(room.players[pidx]);
-    pickSeq.push(room.players[pidx]);
-    pidx=(pidx+1)%n;
-  }
-
-  document.getElementById('d-blist').innerHTML=room.bans.map((id,i)=>{
-    const cat=CATS.find(c=>c.id===id);
-    const p=banSeq[i];
-    return `<div class="ditem">🚫 ${cat?.icon} ${cat?.name}<span style="margin-left:auto;opacity:.5;font-size:.7rem">${p?.avatar||''}</span></div>`;
-  }).join('')||'<div class="ditem">ยังไม่มี</div>';
-
-  document.getElementById('d-plist').innerHTML=room.picks.map((id,i)=>{
-    const cat=CATS.find(c=>c.id===id);
-    const p=pickSeq[i];
-    return `<div class="ditem">✅ ${cat?.icon} ${cat?.name}<span style="margin-left:auto;opacity:.5;font-size:.7rem">${p?.avatar||''}</span></div>`;
-  }).join('')||'<div class="ditem">ยังไม่มี</div>';
+function renderDraftSides(room,n){
+  let banSeq=[],pickSeq=[],pidx=0;
+  for(let r=0;r<room.totalRounds;r++){banSeq.push(room.players[pidx]);pickSeq.push(room.players[pidx]);pidx=(pidx+1)%n;}
+  document.getElementById('d-blist').innerHTML=room.bans.map((id,i)=>{const cat=CATS.find(c=>c.id===id),p=banSeq[i];return`<div class="ditem">🚫 ${cat?.icon} ${cat?.name}<span style="margin-left:auto;opacity:.5;font-size:.7rem">${p?.avatar||''}</span></div>`;}).join('')||'<div class="ditem">ยังไม่มี</div>';
+  document.getElementById('d-plist').innerHTML=room.picks.map((id,i)=>{const cat=CATS.find(c=>c.id===id),p=pickSeq[i];return`<div class="ditem">✅ ${cat?.icon} ${cat?.name}<span style="margin-left:auto;opacity:.5;font-size:.7rem">${p?.avatar||''}</span></div>`;}).join('')||'<div class="ditem">ยังไม่มี</div>';
 }
 
 function draftPick(catId){
@@ -1309,66 +1239,43 @@ function draftPick(catId){
   const cat=CATS.find(c=>c.id===catId);
   showBpPopup(isBan?'ban':'pick',cat,S.myName);
 }
-
 function onDraftActionDone(msg){
   if(!S.room)return;
   const cat=CATS.find(c=>c.id===msg.catId);
   const byPlayer=S.room.players.find(p=>p.id===msg.byPlayerId);
-  if(byPlayer&&byPlayer.id!==S.myId){
-    showBpPopup(msg.action,cat,byPlayer.name);
-  }
+  if(byPlayer&&byPlayer.id!==S.myId)showBpPopup(msg.action,cat,byPlayer.name);
 }
 
-/* ═══════════════════════════════════════
-   BAN/PICK POPUP
-═══════════════════════════════════════ */
+/* ═══════ BAN/PICK POPUP ═══════ */
 function showBpPopup(action,cat,playerName){
-  const overlay=document.getElementById('bp-overlay');
-  const popup=document.getElementById('bp-popup');
-  const isBan=action==='ban';
+  const overlay=document.getElementById('bp-overlay'),popup=document.getElementById('bp-popup'),isBan=action==='ban';
   popup.className='bp-popup '+(isBan?'ban-popup':'pick-popup');
-  const nameTop=document.getElementById('bp-name-top');
-  const nameBot=document.getElementById('bp-name-bot');
-  const lockIcon=document.getElementById('bp-lock');
-  const slashCon=document.getElementById('bp-slash-container');
-  const sub=document.getElementById('bp-subtitle');
-  const playerEl=document.getElementById('bp-player');
-
+  const slashCon=document.getElementById('bp-slash-container'),lockIcon=document.getElementById('bp-lock');
   if(isBan){
     slashCon.style.display='flex';lockIcon.style.display='none';
-    nameTop.textContent=`${cat.icon} ${cat.name}`;
-    nameBot.textContent=`${cat.icon} ${cat.name}`;
-    sub.textContent='หัวข้อนี้ถูกแบน! ไม่สามารถเลือกได้';
-  } else {
-    slashCon.style.display='none';lockIcon.style.display='block';
-    lockIcon.textContent='🔒';
-    sub.textContent=`${cat.icon} ${cat.name} — ถูกล็อคเอาไว้แล้ว!`;
+    document.getElementById('bp-name-top').textContent=`${cat.icon} ${cat.name}`;
+    document.getElementById('bp-name-bot').textContent=`${cat.icon} ${cat.name}`;
+    document.getElementById('bp-subtitle').textContent='หัวข้อนี้ถูกแบน! ไม่สามารถเลือกได้';
+  }else{
+    slashCon.style.display='none';lockIcon.style.display='block';lockIcon.textContent='🔒';
+    document.getElementById('bp-subtitle').textContent=`${cat.icon} ${cat.name} — ถูกล็อคเอาไว้แล้ว!`;
   }
-  playerEl.textContent=`โดย ${playerName}`;
+  document.getElementById('bp-player').textContent=`โดย ${playerName}`;
   overlay.classList.add('active');
-  if(isBan){ setTimeout(()=>{popup.classList.add('slashing');spawnSparks();},150); }
-  else { setTimeout(()=>popup.classList.add('locking'),80); }
+  if(isBan){setTimeout(()=>{popup.classList.add('slashing');spawnSparks();},150);}
+  else{setTimeout(()=>popup.classList.add('locking'),80);}
 }
 function closeBpPopup(){
-  const overlay=document.getElementById('bp-overlay');
-  const popup=document.getElementById('bp-popup');
-  overlay.classList.remove('active');
-  setTimeout(()=>popup.classList.remove('slashing','locking'),300);
+  const overlay=document.getElementById('bp-overlay'),popup=document.getElementById('bp-popup');
+  overlay.classList.remove('active');setTimeout(()=>popup.classList.remove('slashing','locking'),300);
 }
 function spawnSparks(){
   const con=document.getElementById('bp-sparks');con.innerHTML='';
   const colors=['#ff6666','#ff9966','#ffcc66','#ff4444'];
-  for(let i=0;i<14;i++){
-    const s=document.createElement('div');s.className='spark';
-    const angle=(i/14)*360,dist=30+Math.random()*40;
-    s.style.cssText=`background:${colors[i%4]};--sx:${Math.cos(angle*Math.PI/180)*dist}px;--sy:${Math.sin(angle*Math.PI/180)*dist}px;animation:sparkFly .5s ${.25+Math.random()*.15}s ease forwards`;
-    con.appendChild(s);
-  }
+  for(let i=0;i<14;i++){const s=document.createElement('div');s.className='spark';const angle=(i/14)*360,dist=30+Math.random()*40;s.style.cssText=`background:${colors[i%4]};--sx:${Math.cos(angle*Math.PI/180)*dist}px;--sy:${Math.sin(angle*Math.PI/180)*dist}px;animation:sparkFly .5s ${.25+Math.random()*.15}s ease forwards`;con.appendChild(s);}
 }
 
-/* ═══════════════════════════════════════
-   GAME
-═══════════════════════════════════════ */
+/* ═══════ GAME ═══════ */
 function showLoadingQ(){
   showPage('game');
   document.getElementById('g-loading').style.display='block';
@@ -1380,19 +1287,46 @@ function showLoadingQ(){
 function onNewQuestion(msg){
   showPage('game');
   S.answered=false;S.myAnswerIdx=-1;
+  S.currentAnswererId=msg.answererId;
+  S.currentAnswererName=msg.answererName;
+  S.currentAnswererAvatar=msg.answererAvatar;
   clearInterval(S.timerInterval);
   document.getElementById('g-cur').textContent=msg.questionIndex+1;
   document.getElementById('g-tot').textContent=msg.totalQuestions;
-  if(msg.question.question==='__offline__'){
-    generateOfflineQ(msg);return;
-  }
+  if(msg.question.question==='__offline__'){generateOfflineQ(msg);return;}
   renderQuestion(msg.question,msg.timePerQ,msg.scores);
 }
 
+// Called when server asks host to generate offline question
+function onRequestHostQuestion(msg){
+  if(!S.isHost)return; // only host generates
+  showLoadingQ();
+  const cat=CATS.find(c=>c.id===msg.catId);
+  const bank=QUESTION_BANK[cat?.bank||'general']||[];
+  if(!S.usedQ[msg.catId])S.usedQ[msg.catId]=new Set();
+  const used=S.usedQ[msg.catId];
+  let avail=bank.map((_,i)=>i).filter(i=>!used.has(i));
+  if(!avail.length){used.clear();avail=bank.map((_,i)=>i);}
+  for(let i=avail.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[avail[i],avail[j]]=[avail[j],avail[i]];}
+  const raw=bank[avail[0]];used.add(avail[0]);
+  // Send real question + real answer back to server
+  wsSend({
+    type:'host_question_ready',
+    question:raw.q,
+    choices:raw.c,
+    answer:raw.a,
+    explanation:raw.e,
+    catId:msg.catId,
+    catName:`${cat.icon} ${cat.name}`,
+  });
+  // Host also stores locally for reveal
+  S._localAnswer=raw.a;S._localExp=raw.e;
+}
+
 function generateOfflineQ(msg){
+  // Fallback: used only if somehow new_question arrives with __offline__ marker
   if(!S.room)return;
-  const catIdx=Math.floor(msg.questionIndex/S.room.settings.qPerCat);
-  const catId=S.room.picks[catIdx]||msg.catId;
+  const catId=msg.catId||S.room.picks[Math.floor(msg.questionIndex/S.room.settings.qPerCat)];
   const cat=CATS.find(c=>c.id===catId);
   const bank=QUESTION_BANK[cat?.bank||'general']||[];
   if(!S.usedQ[catId])S.usedQ[catId]=new Set();
@@ -1400,30 +1334,55 @@ function generateOfflineQ(msg){
   let avail=bank.map((_,i)=>i).filter(i=>!used.has(i));
   if(!avail.length){used.clear();avail=bank.map((_,i)=>i);}
   for(let i=avail.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[avail[i],avail[j]]=[avail[j],avail[i]];}
-  const raw=bank[avail[0]];
-  used.add(avail[0]);
-  renderQuestion({question:raw.q,choices:raw.c,catName:`${cat.icon} ${cat.name}`,_answer:raw.a,_exp:raw.e},
-    msg.timePerQ||S.room.settings.timePerQ,msg.scores,raw.a,raw.e);
+  const raw=bank[avail[0]];used.add(avail[0]);
+  S._localAnswer=raw.a;S._localExp=raw.e;
+  renderQuestion({question:raw.q,choices:raw.c,catName:`${cat.icon} ${cat.name}`},msg.timePerQ||S.room.settings.timePerQ,msg.scores);
 }
 
-function renderQuestion(q,timePerQ,scores,localAnswer,localExp){
+function renderQuestion(q,timePerQ,scores){
   document.getElementById('g-loading').style.display='none';
   document.getElementById('g-content').style.display='block';
   document.getElementById('g-reveal').style.display='none';
   document.getElementById('g-next').style.display='none';
   document.getElementById('g-cat').textContent=q.catName;
   document.getElementById('g-q').textContent=q.question;
-  // store local answer for offline mode reveal
-  window._localAnswer=localAnswer;
-  window._localExp=localExp;
+
+  const isMyTurn=S.currentAnswererId===S.myId;
   const keys=['ก','ข','ค','ง'];
   document.getElementById('g-choices').innerHTML=(q.choices||[]).map((c,i)=>`
-    <button class="cbtn" id="cb-${i}" onclick="submitAnswer(${i})">
+    <button class="cbtn ${!isMyTurn?'cbtn-spectate':''}" id="cb-${i}"
+      onclick="${isMyTurn?'submitAnswer('+i+')':''}">
       <div class="ckey">${keys[i]}</div>
       <div>${c.replace(/^[กขคง]\.\s*/,'')}</div>
+      ${!isMyTurn?'<div class="spectate-lock">👁️</div>':''}
     </button>`).join('');
-  renderGameBar(scores);
+
+  renderGameUI(scores);
   startTimer(timePerQ||20);
+}
+
+function renderGameUI(scores){
+  if(!S.room)return;
+  const sc=scores||S.room.scores||{};
+  const ansId=S.currentAnswererId;
+
+  // score chips
+  document.getElementById('g-chips').innerHTML=S.room.players.map(p=>`
+    <div class="schip ${p.id===ansId?'answering':''}">
+      ${p.id===ansId?'🎯 ':''} ${p.avatar} ${p.name}
+      <strong>${sc[p.id]||0}</strong>
+    </div>`).join('');
+
+  // answerer spotlight
+  const spotEl=document.getElementById('g-spotlight');
+  if(spotEl){
+    const answerer=S.room.players.find(p=>p.id===ansId);
+    const isMe=ansId===S.myId;
+    spotEl.innerHTML=isMe
+      ?`<div class="spotlight-me">🎯 ตาของคุณ! กดเลือกคำตอบ</div>`
+      :`<div class="spotlight-other">${answerer?.avatar||''} <strong>${answerer?.name||''}</strong> กำลังตอบ... คนอื่นรอดูผลได้เลย</div>`;
+    spotEl.style.display='block';
+  }
 }
 
 function startTimer(sec){
@@ -1436,89 +1395,89 @@ function startTimer(sec){
     const pct=S.timerSec/total;
     ring.style.strokeDashoffset=circ*(1-pct);
     ring.style.stroke=pct>.5?'#7c3aed':pct>.25?'#f59e0b':'#ef4444';
-    num.textContent=S.timerSec;
-    num.style.color=pct>.25?'inherit':'var(--rd)';
+    num.textContent=S.timerSec;num.style.color=pct>.25?'inherit':'var(--rd)';
     if(S.timerSec<=0)clearInterval(S.timerInterval);
   },1000);
 }
 
 function submitAnswer(idx){
   if(S.answered)return;
+  if(S.currentAnswererId!==S.myId)return;
   S.answered=true;S.myAnswerIdx=idx;
   document.querySelectorAll('.cbtn').forEach(b=>b.disabled=true);
   document.getElementById('cb-'+idx).classList.add('sel');
   wsSend({type:'submit_answer',answerIndex:idx});
 }
 
-function onPlayerAnswered(msg){
-  if(!S.room)return;
-  // update roundAnswers locally for display
-  if(!S.room.roundAnswers)S.room.roundAnswers={};
-  renderGameBar();
-}
-
-function renderGameBar(scores){
-  if(!S.room)return;
-  const sc=scores||S.room.scores||{};
-  const ra=S.room.roundAnswers||{};
-  document.getElementById('g-chips').innerHTML=S.room.players.map(p=>`
-    <div class="schip ${ra[p.id]!==undefined?'answered':''}">
-      ${p.avatar} ${p.name} <strong>${sc[p.id]||0}</strong>
-    </div>`).join('');
-}
-
 function onReveal(msg){
   clearInterval(S.timerInterval);
-  const {correctAnswer,explanation,scores,roundAnswers}=msg;
-  // handle offline: use local answer stored
-  const realCorrect = correctAnswer !== undefined ? correctAnswer : window._localAnswer;
-  const realExp = explanation || window._localExp || '';
+  // Server always sends the real correctAnswer now — _localAnswer only as last resort for host
+  const realCorrect = msg.correctAnswer !== undefined ? msg.correctAnswer : S._localAnswer;
+  const realExp = msg.explanation || S._localExp || '';
   const myAns=S.myAnswerIdx;
-  const isOk=myAns===realCorrect;
+  const isMyTurnAnswerer=S.currentAnswererId===S.myId;
 
-  if(S.room)S.room.scores=scores;
+  if(S.room)S.room.scores=msg.scores;
+
   document.querySelectorAll('.cbtn').forEach((b,i)=>{
     b.disabled=true;
     if(i===realCorrect)b.classList.add('ok');
-    else if(i===myAns)b.classList.add('bad');
+    else if(i===myAns&&isMyTurnAnswerer)b.classList.add('bad');
   });
 
+  // show reveal
   document.getElementById('g-reveal').style.display='block';
-  document.getElementById('g-verdict').textContent=
-    myAns===-1?'⏰ หมดเวลา!':isOk?'✅ ถูกต้อง!':'❌ ผิด!';
+  const answerer=S.room?.players.find(p=>p.id===msg.answererId);
+  const isOk=msg.isOk;
+  const isTimeout=msg.answerIndex===-1;
+
+  let verdictText='';
+  if(isTimeout) verdictText=`⏰ ${answerer?.avatar} ${answerer?.name} หมดเวลา!`;
+  else if(isOk) verdictText=`✅ ${answerer?.avatar} ${answerer?.name} ตอบถูก! +${msg.score} คะแนน`;
+  else verdictText=`❌ ${answerer?.avatar} ${answerer?.name} ตอบผิด!`;
+
+  document.getElementById('g-verdict').textContent=verdictText;
   document.getElementById('g-exp').textContent=realExp;
 
+  // show all players' scores
   if(S.room){
-    document.getElementById('g-rv-scores').innerHTML=S.room.players.map(p=>{
-      const ans=roundAnswers[p.id];
-      return `<div class="rsc ${ans?.isOk?'correct':ans!==undefined?'wrong':''}">
-        ${p.avatar} ${p.name}: ${ans?.isOk?`+${ans.score}`:ans!==undefined?'ผิด':'—'}
-      </div>`;
-    }).join('');
+    document.getElementById('g-rv-scores').innerHTML=S.room.players.map(p=>`
+      <div class="rsc ${p.id===msg.answererId?(isOk?'correct':'wrong'):''}">
+        ${p.id===msg.answererId?(isOk?'✅':'❌'):'👁️'} ${p.avatar} ${p.name}:
+        <strong>${msg.scores[p.id]||0}</strong>
+      </div>`).join('');
   }
-  renderGameBar(scores);
+
+  renderGameUI(msg.scores);
+
+  // next button
   document.getElementById('g-next').style.display='block';
   document.getElementById('host-next-btn').style.display=S.isHost?'block':'none';
   document.getElementById('guest-next-wait').style.display=S.isHost?'none':'block';
 }
-function sendNextQ(){ wsSend({type:'next_question'}); }
 
-/* ═══════════════════════════════════════
-   RESULTS
-═══════════════════════════════════════ */
+function sendNextQ(){wsSend({type:'next_question'});}
+
+/* ═══════ ITEM EFFECT ═══════ */
+function onItemEffect(msg){
+  const item=ITEMS_DEF[msg.itemId];
+  const byPlayer=S.room?.players.find(p=>p.id===msg.byPlayerId);
+  if(!item||!byPlayer)return;
+  toast(`${item.icon} ${byPlayer.name} ใช้ "${item.name}"!`);
+  if(msg.scores&&S.room)S.room.scores=msg.scores;
+  // Future: handle freeze timer, half_choices UI, etc.
+}
+
+/* ═══════ RESULTS ═══════ */
 function renderResults(){
-  showPage('results');
-  clearInterval(S.timerInterval);
+  showPage('results');clearInterval(S.timerInterval);
   const room=S.room;
   const sorted=[...room.players].sort((a,b)=>(room.scores[b.id]||0)-(room.scores[a.id]||0));
   const order=sorted.length>=2?[sorted[1],sorted[0],sorted[2]]:[null,sorted[0],null];
   const em=['🥈','🥇','🥉'],cls=['pod-2','pod-1','pod-3'];
   document.getElementById('r-podium').innerHTML=order.map((p,i)=>{
     if(!p)return'<div style="width:116px"></div>';
-    return `<div class="pod-place ${cls[i]}">
-      <div class="pod-av">${p.avatar}</div><div class="pod-name">${p.name}</div>
-      <div class="pod-score">${room.scores[p.id]||0} คะแนน</div>
-      <div class="pod-block">${em[i]}</div></div>`;
+    return`<div class="pod-place ${cls[i]}"><div class="pod-av">${p.avatar}</div><div class="pod-name">${p.name}</div><div class="pod-score">${room.scores[p.id]||0} คะแนน</div><div class="pod-block">${em[i]}</div></div>`;
   }).join('');
   document.getElementById('r-table').innerHTML=sorted.map((p,i)=>`
     <tr class="${i===0?'r1':''}">
@@ -1528,16 +1487,10 @@ function renderResults(){
     </tr>`).join('');
   document.getElementById('r-replay-btn').style.display=S.isHost?'inline-flex':'none';
 }
-function sendRestart(){ wsSend({type:'restart'}); }
+function sendRestart(){wsSend({type:'restart'});}
 
-/* ═══════════════════════════════════════
-   UTILS
-═══════════════════════════════════════ */
-function toast(msg,ms=3500){
-  const el=document.createElement('div');el.className='toast';el.textContent=msg;
-  document.getElementById('toast-stack').appendChild(el);
-  setTimeout(()=>el.remove(),ms);
-}
+/* ═══════ UTILS ═══════ */
+function toast(msg,ms=3500){const el=document.createElement('div');el.className='toast';el.textContent=msg;document.getElementById('toast-stack').appendChild(el);setTimeout(()=>el.remove(),ms);}
 function setErr(id,msg){const el=document.getElementById(id);if(el)el.textContent=msg;}
 </script>
 </body>

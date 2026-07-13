@@ -15,24 +15,32 @@ const rooms = new Map();
 const clients = new Map();
 
 const CATS = [
+  // ── ทั่วไป ──
   {id:'geography', name:'ภูมิศาสตร์',    icon:'🌍'},
   {id:'history',   name:'ประวัติศาสตร์',  icon:'📜'},
-  {id:'science',   name:'วิทยาศาสตร์',    icon:'🔬'},
-  {id:'sports',    name:'กีฬา',           icon:'⚽'},
-  {id:'entertain', name:'บันเทิง',         icon:'🎬'},
-  {id:'food',      name:'อาหาร',          icon:'🍜'},
-  {id:'tech',      name:'เทคโนโลยี',      icon:'💻'},
-  {id:'anime',     name:'อนิเมะ',         icon:'🎌'},
-  {id:'music',     name:'ดนตรี',          icon:'🎵'},
-  {id:'thailand',  name:'ความรู้ไทย',     icon:'🇹🇭'},
-  {id:'math',      name:'คณิตศาสตร์',     icon:'🔢'},
-  {id:'general',   name:'ความรู้ทั่วไป',  icon:'🧠'},
-  {id:'geo2',      name:'ภูมิศาสตร์ II',  icon:'🗺️'},
-  {id:'sci2',      name:'วิทย์ II',       icon:'⚗️'},
-  {id:'tech2',     name:'เทคโน II',       icon:'🖥️'},
-  {id:'culture',   name:'วัฒนธรรมโลก',   icon:'🏛️'},
-  {id:'space',     name:'อวกาศ',          icon:'🚀'},
-  {id:'nature',    name:'ธรรมชาติ',       icon:'🌿'},
+  {id:'science',   name:'วิทยาศาสตร์',   icon:'🔬'},
+  {id:'sports',    name:'กีฬา',          icon:'⚽'},
+  {id:'entertain', name:'บันเทิง',        icon:'🎬'},
+  {id:'food',      name:'อาหาร',         icon:'🍜'},
+  {id:'tech',      name:'เทคโนโลยี',     icon:'💻'},
+  {id:'anime',     name:'อนิเมะ',        icon:'🎌'},
+  {id:'music',     name:'ดนตรี',         icon:'🎵'},
+  {id:'thailand',  name:'ความรู้ไทย',    icon:'🇹🇭'},
+  {id:'math',      name:'คณิตศาสตร์',    icon:'🔢'},
+  {id:'general',   name:'ความรู้ทั่วไป', icon:'🧠'},
+  {id:'geo2',      name:'ภูมิศาสตร์ II', icon:'🗺️'},
+  {id:'sci2',      name:'วิทย์ II',      icon:'⚗️'},
+  {id:'tech2',     name:'เทคโน II',      icon:'🖥️'},
+  {id:'culture',   name:'วัฒนธรรมโลก',  icon:'🏛️'},
+  {id:'space',     name:'อวกาศ',         icon:'🚀'},
+  {id:'nature',    name:'ธรรมชาติ',      icon:'🌿'},
+  // ── ยาก/เจาะจง ──
+  {id:'physics',   name:'ฟิสิกส์',       icon:'⚡'},
+  {id:'chemistry', name:'เคมี',          icon:'🧪'},
+  {id:'biology',   name:'ชีววิทยา',      icon:'🧬'},
+  {id:'economics', name:'เศรษฐศาสตร์',  icon:'📈'},
+  {id:'philosophy',name:'ปรัชญา',        icon:'🤔'},
+  {id:'programming',name:'โปรแกรมมิง',  icon:'👨‍💻'},
 ];
 
 // ── Items skeleton (ขยายได้ในอนาคต) ─────────────────────────────────
@@ -262,7 +270,7 @@ wss.on('connection', (ws) => {
       clearTimeout(room.timerHandle);
       room.revealData = {
         correctAnswer: correct,
-        explanation: room.currentQuestion.explanation,
+        explanation: room.currentQuestion.explanation || '',
         answerIndex,
         answererId: info.playerId,
         isOk,
@@ -270,6 +278,11 @@ wss.on('connection', (ws) => {
         scores: { ...room.scores },
       };
       broadcastAll(room.code, { type: 'reveal_answer', ...room.revealData });
+
+      // Auto-advance after 5s
+      const COUNTDOWN = 5;
+      broadcastAll(room.code, { type: 'auto_advance_countdown', seconds: COUNTDOWN });
+      room.timerHandle = setTimeout(() => autoAdvance(room), COUNTDOWN * 1000);
       return;
     }
 
@@ -311,22 +324,7 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // NEXT QUESTION (host only)
-    if (msg.type === 'next_question' && isHost) {
-      room.questionIndex++;
-      room.answererIdx++;  // ← เปลี่ยนคนตอบทีละคน round-robin
-      room.hasAnswered = false;
-      room.revealData = null;
-      const total = room.picks.length * room.settings.qPerCat;
-      if (room.questionIndex >= total) {
-        room.phase = 'results';
-        broadcastAll(room.code, roomSnapshot(room));
-      } else {
-        broadcastAll(room.code, roomSnapshot(room));
-        loadNextQuestion(room);
-      }
-      return;
-    }
+    // next_question handled automatically by server
 
     // RESTART
     if (msg.type === 'restart' && isHost) {

@@ -7,85 +7,54 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
-
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
 const rooms = new Map();
 const clients = new Map();
 
+// ── Categories ───────────────────────────────────────────────────────
 const CATS = [
-  // ── ทั่วไป ──
-  {id:'geography', name:'ภูมิศาสตร์',    icon:'🌍'},
-  {id:'history',   name:'ประวัติศาสตร์',  icon:'📜'},
-  {id:'science',   name:'วิทยาศาสตร์',   icon:'🔬'},
-  {id:'sports',    name:'กีฬา',          icon:'⚽'},
-  {id:'entertain', name:'บันเทิง',        icon:'🎬'},
-  {id:'food',      name:'อาหาร',         icon:'🍜'},
-  {id:'tech',      name:'เทคโนโลยี',     icon:'💻'},
-  {id:'anime',     name:'อนิเมะ',        icon:'🎌'},
-  {id:'music',     name:'ดนตรี',         icon:'🎵'},
-  {id:'thailand',  name:'ความรู้ไทย',    icon:'🇹🇭'},
-  {id:'math',      name:'คณิตศาสตร์',    icon:'🔢'},
-  {id:'general',   name:'ความรู้ทั่วไป', icon:'🧠'},
-  {id:'geo2',      name:'ภูมิศาสตร์ II', icon:'🗺️'},
-  {id:'sci2',      name:'วิทย์ II',      icon:'⚗️'},
-  {id:'tech2',     name:'เทคโน II',      icon:'🖥️'},
-  {id:'culture',   name:'วัฒนธรรมโลก',  icon:'🏛️'},
-  {id:'space',     name:'อวกาศ',         icon:'🚀'},
-  {id:'nature',    name:'ธรรมชาติ',      icon:'🌿'},
-  // ── ยาก/เจาะจง ──
-  {id:'physics',   name:'ฟิสิกส์',       icon:'⚡'},
-  {id:'chemistry', name:'เคมี',          icon:'🧪'},
-  {id:'biology',   name:'ชีววิทยา',      icon:'🧬'},
-  {id:'economics', name:'เศรษฐศาสตร์',  icon:'📈'},
-  {id:'philosophy',name:'ปรัชญา',        icon:'🤔'},
-  {id:'programming',name:'โปรแกรมมิง',  icon:'👨‍💻'},
+  {id:'geography',  name:'ภูมิศาสตร์',    icon:'🌍'},
+  {id:'history',    name:'ประวัติศาสตร์',  icon:'📜'},
+  {id:'science',    name:'วิทยาศาสตร์',   icon:'🔬'},
+  {id:'sports',     name:'กีฬา',          icon:'⚽'},
+  {id:'entertain',  name:'บันเทิง',        icon:'🎬'},
+  {id:'food',       name:'อาหาร',         icon:'🍜'},
+  {id:'tech',       name:'เทคโนโลยี',     icon:'💻'},
+  {id:'anime',      name:'อนิเมะ',        icon:'🎌'},
+  {id:'music',      name:'ดนตรี',         icon:'🎵'},
+  {id:'thailand',   name:'ความรู้ไทย',    icon:'🇹🇭'},
+  {id:'math',       name:'คณิตศาสตร์',    icon:'🔢'},
+  {id:'general',    name:'ความรู้ทั่วไป', icon:'🧠'},
+  {id:'geo2',       name:'ภูมิศาสตร์ II', icon:'🗺️'},
+  {id:'sci2',       name:'วิทย์ II',      icon:'⚗️'},
+  {id:'tech2',      name:'เทคโน II',      icon:'🖥️'},
+  {id:'culture',    name:'วัฒนธรรมโลก',  icon:'🏛️'},
+  {id:'space',      name:'อวกาศ',         icon:'🚀'},
+  {id:'nature',     name:'ธรรมชาติ',      icon:'🌿'},
+  {id:'physics',    name:'ฟิสิกส์',       icon:'⚡'},
+  {id:'chemistry',  name:'เคมี',          icon:'🧪'},
+  {id:'biology',    name:'ชีววิทยา',      icon:'🧬'},
+  {id:'economics',  name:'เศรษฐศาสตร์',  icon:'📈'},
+  {id:'philosophy', name:'ปรัชญา',        icon:'🤔'},
+  {id:'programming',name:'โปรแกรมมิง',   icon:'👨‍💻'},
 ];
 
-// ── Items skeleton (ขยายได้ในอนาคต) ─────────────────────────────────
-const ITEMS = {
-  swap_question: {
-    id: 'swap_question',
-    name: 'เปลี่ยนคำถาม',
-    icon: '🔄',
-    desc: 'เปลี่ยนคำถามใหม่ 1 ครั้ง',
-    targetSelf: true,  // ใช้กับตัวเอง
-    targetOther: false,
-  },
-  add_time: {
-    id: 'add_time',
-    name: 'เพิ่มเวลา +10',
-    icon: '⏰',
-    desc: 'เพิ่มเวลาให้ตัวเองอีก 10 วินาที',
-    targetSelf: true,
-    targetOther: false,
-  },
-  half_choices: {
-    id: 'half_choices',
-    name: 'ตัดตัวเลือก',
-    icon: '✂️',
-    desc: 'ตัดตัวเลือกผิดออก 2 ตัว',
-    targetSelf: true,
-    targetOther: false,
-  },
-  freeze: {
-    id: 'freeze',
-    name: 'แช่แข็ง',
-    icon: '🧊',
-    desc: 'หยุดเวลาของผู้เล่นอื่น 5 วินาที',
-    targetSelf: false,
-    targetOther: true,
-  },
-  steal_points: {
-    id: 'steal_points',
-    name: 'ขโมยคะแนน',
-    icon: '💀',
-    desc: 'ขโมย 5 คะแนนจากผู้เล่นอื่น',
-    targetSelf: false,
-    targetOther: true,
-  },
-};
+// ── Draft config by player count ─────────────────────────────────────
+// totalRounds = จำนวน picks = จำนวนหัวข้อที่ใช้เล่น
+// แต่ละรอบ = 1 ban + 1 pick ต่อผู้เล่น
+// ต้องมี category เหลือพอ = totalRounds * 2 + (bans ทั้งหมด)
+// 2 คน: 5 picks, 5 bans => ต้องการ 10 cats ✓
+// 3 คน: 4 picks, 4 bans => ต้องการ 8 cats ✓
+// 4 คน: 3 picks, 4 bans => ต้องการ 7 cats ✓  (ลด picks เพราะ 4คน×3=12ข้อก็เยอะพอ)
+// 5-6 คน: 3 picks, 3 bans => ต้องการ 6 cats ✓
+function getDraftConfig(numPlayers) {
+  if (numPlayers <= 2) return { totalRounds: 5, bansPerRound: 1 };
+  if (numPlayers === 3) return { totalRounds: 4, bansPerRound: 1 };
+  if (numPlayers === 4) return { totalRounds: 3, bansPerRound: 1 };
+  return { totalRounds: 3, bansPerRound: 1 }; // 5-6 players
+}
 
 // ── Helpers ──────────────────────────────────────────────────────────
 function makeCode() {
@@ -102,31 +71,48 @@ function broadcastAll(code, obj) {
   }
 }
 
+// ── Shuffle array ─────────────────────────────────────────────────────
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 // ── Draft helpers ─────────────────────────────────────────────────────
 function initDraft(room) {
+  const { totalRounds } = getDraftConfig(room.players.length);
   room.bans = [];
   room.picks = [];
   room.draftPlayerIdx = 0;
-  room.draftSubAction = 'ban';
-  room.totalRounds = 5;
+  room.draftSubAction = 'ban';  // each turn: ban first, then pick
+  room.totalRounds = totalRounds;
+  // Shuffle player order for draft
+  room.draftOrder = shuffle(room.players.map(p => p.id));
 }
+
+function currentDraftPlayerId(room) {
+  return room.draftOrder[room.draftPlayerIdx % room.draftOrder.length];
+}
+
 function advanceDraft(room) {
   if (room.draftSubAction === 'ban') {
+    // same player now picks
     room.draftSubAction = 'pick';
   } else {
-    room.draftPlayerIdx = (room.draftPlayerIdx + 1) % room.players.length;
+    // move to next player, start with ban
+    room.draftPlayerIdx++;
     room.draftSubAction = 'ban';
   }
 }
-function isDraftDone(room) { return room.picks.length >= room.totalRounds; }
 
-// ── Turn-based helpers ────────────────────────────────────────────────
-// แต่ละข้อ: ผู้เล่นที่ถึงตาตอบ คนอื่นดู
-// หลัง reveal → เปลี่ยนไปคนถัดไป
-function getCurrentAnswerer(room) {
-  return room.players[room.answererIdx % room.players.length];
+function isDraftDone(room) {
+  return room.picks.length >= room.totalRounds;
 }
 
+// ── Room snapshot ─────────────────────────────────────────────────────
 function roomSnapshot(room) {
   return {
     type: 'room_state',
@@ -140,43 +126,57 @@ function roomSnapshot(room) {
       picks: room.picks,
       draftPlayerIdx: room.draftPlayerIdx,
       draftSubAction: room.draftSubAction,
+      draftOrder: room.draftOrder,
       totalRounds: room.totalRounds,
       questionIndex: room.questionIndex,
       totalQuestions: room.picks.length * room.settings.qPerCat,
       scores: room.scores,
-      answererIdx: room.answererIdx,   // ← ใครถึงตาตอบ
-      hasAnswered: room.hasAnswered,   // ← ตอบแล้วหรือยัง
+      answererIdx: room.answererIdx,
+      hasAnswered: room.hasAnswered,
       revealData: room.revealData,
-      items: room.items,              // ← ไอเทมแต่ละคน
+      items: room.items,
     }
   };
+}
+
+// ── Answerer ──────────────────────────────────────────────────────────
+function getCurrentAnswerer(room) {
+  return room.players[room.answererIdx % room.players.length];
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────────
 wss.on('connection', (ws) => {
   ws.on('message', async (raw) => {
-    let msg; try { msg = JSON.parse(raw); } catch { return; }
+    let msg;
+    try { msg = JSON.parse(raw); } catch { return; }
     const info = clients.get(ws);
 
-    // CREATE ROOM
+    // ── CREATE ROOM ──────────────────────────────────────────────────
     if (msg.type === 'create_room') {
       const playerId = uuidv4();
-      let code; do { code = makeCode(); } while (rooms.has(code));
+      let code;
+      do { code = makeCode(); } while (rooms.has(code));
+
       const room = {
-        code, hostId: playerId,
-        players: [{ id: playerId, name: msg.playerName, avatar: msg.avatar||'😀', online: true }],
+        code,
+        hostId: playerId,
+        players: [{ id: playerId, name: msg.playerName, avatar: msg.avatar || '😀', online: true }],
         phase: 'lobby',
         settings: { qPerCat: 3, timePerQ: 20, apiKey: '' },
         bans: [], picks: [],
-        draftPlayerIdx: 0, draftSubAction: 'ban', totalRounds: 5,
+        draftPlayerIdx: 0,
+        draftSubAction: 'ban',
+        draftOrder: [playerId],
+        totalRounds: 5,
         questionIndex: 0,
-        answererIdx: 0,      // ← เริ่มที่ผู้เล่น 0
+        answererIdx: 0,
         hasAnswered: false,
         scores: { [playerId]: 0 },
-        items: { [playerId]: [] },  // ← ไอเทม skeleton
+        items: { [playerId]: [] },
         revealData: null,
         currentQuestion: null,
-        prevQuestions: {}, usedQ: {},
+        prevQuestions: {},
+        usedQ: {},
         timerHandle: null,
       };
       rooms.set(code, room);
@@ -186,15 +186,16 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // JOIN ROOM
+    // ── JOIN ROOM ─────────────────────────────────────────────────────
     if (msg.type === 'join_room') {
       const code = msg.code?.toUpperCase();
       const room = rooms.get(code);
       if (!room) return send(ws, { type: 'error', message: 'ไม่พบห้องรหัส ' + msg.code });
       if (room.phase !== 'lobby') return send(ws, { type: 'error', message: 'เกมเริ่มแล้ว' });
       if (room.players.length >= 6) return send(ws, { type: 'error', message: 'ห้องเต็ม (สูงสุด 6 คน)' });
+
       const playerId = uuidv4();
-      room.players.push({ id: playerId, name: msg.playerName, avatar: msg.avatar||'😀', online: true });
+      room.players.push({ id: playerId, name: msg.playerName, avatar: msg.avatar || '😀', online: true });
       room.scores[playerId] = 0;
       room.items[playerId] = [];
       clients.set(ws, { roomCode: code, playerId });
@@ -209,34 +210,44 @@ wss.on('connection', (ws) => {
     if (!room) return;
     const isHost = room.hostId === info.playerId;
 
-    // UPDATE SETTINGS
+    // ── UPDATE SETTINGS ───────────────────────────────────────────────
     if (msg.type === 'update_settings' && isHost) {
       Object.assign(room.settings, msg.settings);
       broadcastAll(room.code, roomSnapshot(room));
       return;
     }
 
-    // START DRAFT
+    // ── START DRAFT ───────────────────────────────────────────────────
     if (msg.type === 'start_draft' && isHost) {
       if (room.players.length < 2) return send(ws, { type: 'error', message: 'ต้องมีผู้เล่นอย่างน้อย 2 คน' });
       room.phase = 'draft';
       initDraft(room);
+      const cfg = getDraftConfig(room.players.length);
+      // Notify how many rounds
+      broadcastAll(room.code, {
+        type: 'toast',
+        message: `🎮 Draft เริ่ม! ${room.players.length} คน → ${cfg.totalRounds} หัวข้อ | ลำดับสุ่มแล้ว`
+      });
       broadcastAll(room.code, roomSnapshot(room));
       return;
     }
 
-    // DRAFT ACTION
+    // ── DRAFT ACTION ──────────────────────────────────────────────────
     if (msg.type === 'draft_action') {
       if (room.phase !== 'draft') return;
-      const curPlayer = room.players[room.draftPlayerIdx];
-      if (!curPlayer || curPlayer.id !== info.playerId) return;
+      const curId = currentDraftPlayerId(room);
+      if (curId !== info.playerId) return; // ไม่ใช่ตาของคุณ
+
       const { catId } = msg;
       if (room.bans.includes(catId) || room.picks.includes(catId)) return;
+
       const action = room.draftSubAction;
       if (action === 'ban') room.bans.push(catId);
       else room.picks.push(catId);
+
       broadcastAll(room.code, { type: 'draft_action_done', action, catId, byPlayerId: info.playerId });
       advanceDraft(room);
+
       if (isDraftDone(room)) {
         setTimeout(() => {
           room.phase = 'game';
@@ -252,22 +263,23 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    // SUBMIT ANSWER (เฉพาะคนที่ถึงตา)
+    // ── SUBMIT ANSWER ─────────────────────────────────────────────────
     if (msg.type === 'submit_answer') {
       if (room.phase !== 'game' || !room.currentQuestion) return;
       if (room.hasAnswered) return;
       const answerer = getCurrentAnswerer(room);
-      if (answerer.id !== info.playerId) return; // ← ไม่ใช่ตาตอบ
+      if (answerer.id !== info.playerId) return; // ไม่ใช่ตาตอบ
 
       room.hasAnswered = true;
+      clearTimeout(room.timerHandle);
+
       const elapsed = (Date.now() - room.questionStartTime) / 1000;
       const { answerIndex } = msg;
       const correct = room.currentQuestion.answer;
       const isOk = answerIndex === correct;
-      const bonus = isOk ? Math.max(0, Math.floor((1 - elapsed/room.settings.timePerQ)*5)) : 0;
-      if (isOk) room.scores[info.playerId] = (room.scores[info.playerId]||0) + 10 + bonus;
+      const bonus = isOk ? Math.max(0, Math.floor((1 - elapsed / room.settings.timePerQ) * 5)) : 0;
+      if (isOk) room.scores[info.playerId] = (room.scores[info.playerId] || 0) + 10 + bonus;
 
-      clearTimeout(room.timerHandle);
       room.revealData = {
         correctAnswer: correct,
         explanation: room.currentQuestion.explanation || '',
@@ -278,88 +290,65 @@ wss.on('connection', (ws) => {
         scores: { ...room.scores },
       };
       broadcastAll(room.code, { type: 'reveal_answer', ...room.revealData });
-
-      // Auto-advance after 5s
-      const COUNTDOWN = 5;
-      broadcastAll(room.code, { type: 'auto_advance_countdown', seconds: COUNTDOWN });
-      room.timerHandle = setTimeout(() => autoAdvance(room), COUNTDOWN * 1000);
+      scheduleAutoAdvance(room);
       return;
     }
 
-    // USE ITEM (skeleton — ขยายได้ในอนาคต)
+    // ── HOST SENDS OFFLINE QUESTION ───────────────────────────────────
+    if (msg.type === 'host_question_ready' && isHost) {
+      if (!room.currentQuestion || room.currentQuestion.answer !== -1) return;
+      const answerer = getCurrentAnswerer(room);
+      room.currentQuestion = {
+        question: msg.question,
+        choices: msg.choices,
+        answer: msg.answer,
+        explanation: msg.explanation || '',
+        catId: msg.catId,
+        catName: msg.catName,
+      };
+      room.questionStartTime = Date.now();
+      broadcastAll(room.code, {
+        type: 'new_question',
+        question: { question: msg.question, choices: msg.choices, catName: msg.catName },
+        questionIndex: room.questionIndex,
+        totalQuestions: room.picks.length * room.settings.qPerCat,
+        scores: room.scores,
+        timePerQ: room.settings.timePerQ,
+        catId: msg.catId,
+        answererId: answerer.id,
+        answererName: answerer.name,
+        answererAvatar: answerer.avatar,
+      });
+      scheduleTimeUp(room, answerer);
+      return;
+    }
+
+    // ── USE ITEM (skeleton) ───────────────────────────────────────────
     if (msg.type === 'use_item') {
       const { itemId, targetId } = msg;
-      const item = ITEMS[itemId];
-      if (!item) return;
       const playerItems = room.items[info.playerId] || [];
       if (!playerItems.includes(itemId)) return;
-      // ลบไอเทมออก
       room.items[info.playerId] = playerItems.filter(i => i !== itemId);
-
-      // Process item effect
-      switch(itemId) {
-        case 'add_time':
-          broadcastAll(room.code, { type: 'item_effect', itemId, byPlayerId: info.playerId, targetId: info.playerId });
-          break;
-        case 'swap_question':
-          broadcastAll(room.code, { type: 'item_effect', itemId, byPlayerId: info.playerId });
-          if (isHost) loadNextQuestion(room, true);
-          break;
-        case 'half_choices':
-          broadcastAll(room.code, { type: 'item_effect', itemId, byPlayerId: info.playerId,
-            correctAnswer: room.currentQuestion?.answer });
-          break;
-        case 'freeze':
-          broadcastAll(room.code, { type: 'item_effect', itemId, byPlayerId: info.playerId, targetId });
-          break;
-        case 'steal_points':
-          if (targetId && room.scores[targetId] >= 5) {
-            room.scores[targetId] -= 5;
-            room.scores[info.playerId] = (room.scores[info.playerId]||0) + 5;
-          }
-          broadcastAll(room.code, { type: 'item_effect', itemId, byPlayerId: info.playerId, targetId, scores: room.scores });
-          break;
+      if (itemId === 'steal_points' && targetId && (room.scores[targetId] || 0) >= 5) {
+        room.scores[targetId] -= 5;
+        room.scores[info.playerId] = (room.scores[info.playerId] || 0) + 5;
       }
+      broadcastAll(room.code, { type: 'item_effect', itemId, byPlayerId: info.playerId, targetId, scores: room.scores });
       broadcastAll(room.code, roomSnapshot(room));
       return;
     }
 
-    // next_question handled automatically by server
-
-    // RESTART
+    // ── RESTART ───────────────────────────────────────────────────────
     if (msg.type === 'restart' && isHost) {
       clearTimeout(room.timerHandle);
       room.phase = 'lobby';
-      initDraft(room);
-      room.questionIndex = 0;
-      room.answererIdx = 0;
-      room.hasAnswered = false;
+      room.bans = []; room.picks = [];
+      room.questionIndex = 0; room.answererIdx = 0; room.hasAnswered = false;
       room.players.forEach(p => { room.scores[p.id] = 0; room.items[p.id] = []; });
-      room.revealData = null;
-      room.currentQuestion = null;
+      room.revealData = null; room.currentQuestion = null;
       room.prevQuestions = {}; room.usedQ = {};
+      initDraft(room);
       broadcastAll(room.code, roomSnapshot(room));
-      return;
-    }
-
-    // HOST SENDS GENERATED OFFLINE QUESTION
-    if (msg.type === 'host_question_ready' && isHost) {
-      const { question, answer, choices, explanation, catId, catName } = msg;
-      if (!room.currentQuestion || room.currentQuestion.answer !== -1) return; // already set
-      const answerer = getCurrentAnswerer(room);
-      // Store real question with real answer on server
-      room.currentQuestion = { question, choices, answer, explanation, catId, catName };
-      room.questionStartTime = Date.now();
-      // Broadcast to all clients
-      broadcastAll(room.code, {
-        type: 'new_question',
-        question: { question, choices, catName },
-        questionIndex: room.questionIndex,
-        totalQuestions: room.picks.length * room.settings.qPerCat,
-        scores: room.scores, timePerQ: room.settings.timePerQ,
-        catId, answererId: answerer.id, answererName: answerer.name, answererAvatar: answerer.avatar,
-      });
-      scheduleTimeUp(room, answerer);
       return;
     }
 
@@ -368,32 +357,32 @@ wss.on('connection', (ws) => {
 
   ws.on('close', () => {
     const info = clients.get(ws);
-    if (info) {
-      const room = rooms.get(info.roomCode);
-      if (room) {
-        const p = room.players.find(p => p.id === info.playerId);
-        if (p) {
-          p.online = false;
-          broadcastAll(room.code, roomSnapshot(room));
-          broadcastAll(room.code, { type: 'toast', message: `${p.avatar} ${p.name} ออกจากห้อง` });
-        }
-        if (room.players.every(p => !p.online)) {
-          setTimeout(() => {
-            if (rooms.has(room.code) && rooms.get(room.code).players.every(p => !p.online))
-              rooms.delete(room.code);
-          }, 300000);
-        }
+    if (!info) return;
+    const room = rooms.get(info.roomCode);
+    if (room) {
+      const p = room.players.find(p => p.id === info.playerId);
+      if (p) {
+        p.online = false;
+        broadcastAll(room.code, roomSnapshot(room));
+        broadcastAll(room.code, { type: 'toast', message: `${p.avatar} ${p.name} ออกจากห้อง` });
       }
-      clients.delete(ws);
+      if (room.players.every(p => !p.online)) {
+        setTimeout(() => {
+          if (rooms.has(room.code) && rooms.get(room.code).players.every(p => !p.online))
+            rooms.delete(room.code);
+        }, 300000);
+      }
     }
+    clients.delete(ws);
   });
 });
 
-// ── Load question ─────────────────────────────────────────────────────
-async function loadNextQuestion(room, forceNew = false) {
+// ── Game logic ─────────────────────────────────────────────────────────
+async function loadNextQuestion(room) {
   room.currentQuestion = null;
   room.hasAnswered = false;
   room.revealData = null;
+  broadcastAll(room.code, { type: 'loading_question' });
 
   const catIdx = Math.floor(room.questionIndex / room.settings.qPerCat);
   const catId = room.picks[catIdx];
@@ -401,29 +390,25 @@ async function loadNextQuestion(room, forceNew = false) {
   const answerer = getCurrentAnswerer(room);
 
   if (room.settings.apiKey) {
-    // Server generates via API then broadcasts
-    broadcastAll(room.code, { type: 'loading_question' });
     try {
       const prev = room.prevQuestions[catId] || [];
       const avoidPart = prev.length ? `\nห้ามซ้ำกับ:\n- ${prev.slice(-15).join('\n- ')}` : '';
       const prompt = `สร้างคำถามภาษาไทยหมวด "${cat.icon} ${cat.name}" 1 ข้อ พร้อม 4 ตัวเลือก ระดับปานกลาง${avoidPart}\nตอบ JSON เท่านั้น: {"question":"...","choices":["ก. ...","ข. ...","ค. ...","ง. ..."],"answer":0,"explanation":"..."}`;
       const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method:'POST',
-        headers:{'Content-Type':'application/json','x-api-key':room.settings.apiKey,'anthropic-version':'2023-06-01'},
-        body: JSON.stringify({ model:'claude-sonnet-4-6', max_tokens:600, messages:[{role:'user',content:prompt}] }),
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-api-key': room.settings.apiKey, 'anthropic-version': '2023-06-01' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 600, messages: [{ role: 'user', content: prompt }] }),
       });
       const data = await res.json();
       if (res.ok) {
-        const question = JSON.parse(data.content[0].text.trim().replace(/```json|```/g,'').trim());
+        const q = JSON.parse(data.content[0].text.trim().replace(/```json|```/g, '').trim());
         if (!room.prevQuestions[catId]) room.prevQuestions[catId] = [];
-        room.prevQuestions[catId].push(question.question);
-        question.catName = `${cat.icon} ${cat.name}`;
-        question.catId = catId;
-        room.currentQuestion = question;
+        room.prevQuestions[catId].push(q.question);
+        room.currentQuestion = { ...q, catName: `${cat.icon} ${cat.name}`, catId };
         room.questionStartTime = Date.now();
         broadcastAll(room.code, {
           type: 'new_question',
-          question: { question: question.question, choices: question.choices, catName: question.catName },
+          question: { question: q.question, choices: q.choices, catName: room.currentQuestion.catName },
           questionIndex: room.questionIndex,
           totalQuestions: room.picks.length * room.settings.qPerCat,
           scores: room.scores, timePerQ: room.settings.timePerQ,
@@ -432,15 +417,14 @@ async function loadNextQuestion(room, forceNew = false) {
         scheduleTimeUp(room, answerer);
         return;
       }
-    } catch(e) { console.log('API err, fallback offline'); }
+    } catch (e) { console.log('API err, offline fallback'); }
   }
 
-  // OFFLINE: ask host client to generate and send back the question
-  // Server stores a placeholder with correct answer unknown until host reports
-  room.currentQuestion = { question:'__need_host__', choices:[], answer:-1, explanation:'', catId, catName:`${cat.icon} ${cat.name}` };
+  // Offline: ask host to generate
+  room.currentQuestion = { question: '__need_host__', choices: [], answer: -1, explanation: '', catId, catName: `${cat.icon} ${cat.name}` };
   broadcastAll(room.code, {
     type: 'request_host_question',
-    catId, catName:`${cat.icon} ${cat.name}`,
+    catId, catName: `${cat.icon} ${cat.name}`,
     questionIndex: room.questionIndex,
     totalQuestions: room.picks.length * room.settings.qPerCat,
     scores: room.scores, timePerQ: room.settings.timePerQ,
@@ -451,17 +435,41 @@ async function loadNextQuestion(room, forceNew = false) {
 function scheduleTimeUp(room, answerer) {
   clearTimeout(room.timerHandle);
   room.timerHandle = setTimeout(() => {
-    if (!room.hasAnswered) {
-      room.hasAnswered = true;
-      room.revealData = {
-        correctAnswer: room.currentQuestion?.answer,
-        explanation: room.currentQuestion?.explanation || '',
-        answerIndex: -1, answererId: answerer.id,
-        isOk: false, score: 0, scores: { ...room.scores },
-      };
-      broadcastAll(room.code, { type: 'reveal_answer', ...room.revealData });
-    }
+    if (room.hasAnswered) return;
+    room.hasAnswered = true;
+    room.revealData = {
+      correctAnswer: room.currentQuestion?.answer,
+      explanation: room.currentQuestion?.explanation || '',
+      answerIndex: -1,
+      answererId: answerer.id,
+      isOk: false, score: 0,
+      scores: { ...room.scores },
+    };
+    broadcastAll(room.code, { type: 'reveal_answer', ...room.revealData });
+    scheduleAutoAdvance(room);
   }, room.settings.timePerQ * 1000 + 800);
+}
+
+const REVEAL_WAIT = 5; // seconds before auto-advance
+
+function scheduleAutoAdvance(room) {
+  broadcastAll(room.code, { type: 'auto_advance_countdown', seconds: REVEAL_WAIT });
+  room.timerHandle = setTimeout(() => doAutoAdvance(room), REVEAL_WAIT * 1000);
+}
+
+function doAutoAdvance(room) {
+  room.questionIndex++;
+  room.answererIdx++;
+  room.hasAnswered = false;
+  room.revealData = null;
+  const total = room.picks.length * room.settings.qPerCat;
+  if (room.questionIndex >= total) {
+    room.phase = 'results';
+    broadcastAll(room.code, roomSnapshot(room));
+  } else {
+    broadcastAll(room.code, roomSnapshot(room));
+    loadNextQuestion(room);
+  }
 }
 
 const PORT = process.env.PORT || 3000;

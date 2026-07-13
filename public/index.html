@@ -551,6 +551,9 @@ input::placeholder{color:var(--mt)}
 
     <div class="card" id="host-settings" style="display:none">
       <div class="clabel">⚙️ ตั้งค่าห้อง (เจ้าของห้องเท่านั้น)</div>
+      <div id="rounds-info" style="font-size:.8rem;color:var(--cy);margin-bottom:10px;padding:8px;background:rgba(6,182,212,.08);border-radius:8px;border:1px solid rgba(6,182,212,.2)">
+        📊 จำนวนหัวข้อ: <strong id="rounds-count">5</strong> (ปรับอัตโนมัติตามผู้เล่น)
+      </div>
       <div class="srow">
         <label>คำถามต่อหัวข้อ</label>
         <select id="s-qcount" onchange="sendSettings()">
@@ -1304,7 +1307,15 @@ function renderLobby(){
   document.getElementById('guest-settings').style.display=S.isHost?'none':'block';
   document.getElementById('host-start-btn').style.display=S.isHost?'block':'none';
   document.getElementById('guest-wait').style.display=S.isHost?'none':'block';
-  if(!S.isHost)document.getElementById('settings-display').innerHTML=`คำถามต่อหัวข้อ: <strong>${room.settings.qPerCat}</strong> ข้อ &nbsp;|&nbsp; เวลาต่อข้อ: <strong>${room.settings.timePerQ}</strong> วิ`;
+  if(!S.isHost){
+    const cfgRounds={2:5,3:4,4:3,5:3,6:3};
+    const rounds=cfgRounds[room.players.length]||3;
+    document.getElementById('settings-display').innerHTML=
+      `คำถามต่อหัวข้อ: <strong>${room.settings.qPerCat}</strong> ข้อ &nbsp;|&nbsp; เวลาต่อข้อ: <strong>${room.settings.timePerQ}</strong> วิ &nbsp;|&nbsp; หัวข้อที่จะเล่น: <strong>${rounds}</strong>`;
+  }
+  // Update rounds info for host
+  const roundsEl=document.getElementById('rounds-count');
+  if(roundsEl){const cfgR={2:5,3:4,4:3,5:3,6:3};roundsEl.textContent=cfgR[room.players.length]||3;}
   document.getElementById('lobby-players').innerHTML=room.players.map(p=>`
     <div class="pitem ${p.online===false?'offline':''}">
       <div class="pitem-av">${p.avatar}</div><div class="pitem-name">${p.name}</div>
@@ -1327,9 +1338,12 @@ function startDraft(){
 function renderDraft(){
   showPage('draft');
   const room=S.room,n=room.players.length;
-  const curPlayer=room.players[room.draftPlayerIdx];
+  // Use draftOrder (shuffled) from server
+  const draftOrder=room.draftOrder||room.players.map(p=>p.id);
+  const curPlayerId=draftOrder[room.draftPlayerIdx%draftOrder.length];
+  const curPlayer=room.players.find(p=>p.id===curPlayerId)||room.players[0];
   const isBan=room.draftSubAction==='ban';
-  const isMyTurn=curPlayer&&curPlayer.id===S.myId;
+  const isMyTurn=curPlayerId===S.myId;
   const pill=document.getElementById('d-phase-pill');
   pill.textContent=isBan?'🚫 แบนหัวข้อ':'✅ เลือกหัวข้อ';
   pill.className='phase-pill '+(isBan?'pp-ban':'pp-pick');
@@ -1352,8 +1366,14 @@ function renderDraft(){
 }
 
 function renderDraftTimeline(room,n){
-  let seq=[];let pidx=0;
-  for(let r=0;r<room.totalRounds;r++){seq.push({pidx,action:'ban'});seq.push({pidx,action:'pick'});pidx=(pidx+1)%n;}
+  const draftOrder=room.draftOrder||room.players.map(p=>p.id);
+  const dn=draftOrder.length;
+  let seq=[];
+  for(let r=0;r<room.totalRounds;r++){
+    const pidx=r%dn;
+    seq.push({pidx,action:'ban'});
+    seq.push({pidx,action:'pick'});
+  }
   const doneSteps=room.bans.length+room.picks.length;
   let seqDone=0,bd=0,pd=0;
   for(let i=0;i<seq.length;i++){
@@ -1362,18 +1382,27 @@ function renderDraftTimeline(room,n){
   }
   let html='';
   for(let i=0;i<seq.length;i++){
-    const s=seq[i],p=room.players[s.pidx],done=i<seqDone,cur=i===seqDone,isBanStep=s.action==='ban';
-    let cls=cur?'current':done?(isBanStep?'done-ban':'done-pick'):'';
+    const s=seq[i];
+    const pid=draftOrder[s.pidx];
+    const p=room.players.find(pl=>pl.id===pid);
+    const done=i<seqDone,cur=i===seqDone,isBanStep=s.action==='ban';
+    const cls=cur?'current':done?(isBanStep?'done-ban':'done-pick'):'';
     const inner=done?(isBanStep?'🚫':'✅'):cur?(p?.avatar||'?'):(isBanStep?'B':'P');
-    html+=`<div class="tl-step"><div class="tl-dot ${cls}" title="${p?.name} ${s.action}">${inner}</div><div class="tl-label">${p?.name||''}</div></div>`;
+    html+=`<div class="tl-step"><div class="tl-dot ${cls}" title="${p?.name||''} ${s.action}">${inner}</div><div class="tl-label">${p?.name||''}</div></div>`;
     if(i<seq.length-1)html+=`<div class="tl-line ${i<seqDone?'done':''}"></div>`;
   }
   document.getElementById('d-tl').innerHTML=html;
 }
 
 function renderDraftSides(room,n){
-  let banSeq=[],pickSeq=[],pidx=0;
-  for(let r=0;r<room.totalRounds;r++){banSeq.push(room.players[pidx]);pickSeq.push(room.players[pidx]);pidx=(pidx+1)%n;}
+  const draftOrder=room.draftOrder||room.players.map(p=>p.id);
+  const dn=draftOrder.length;
+  let banSeq=[],pickSeq=[];
+  for(let r=0;r<room.totalRounds;r++){
+    const pid=draftOrder[r%dn];
+    const p=room.players.find(pl=>pl.id===pid);
+    banSeq.push(p);pickSeq.push(p);
+  }
   document.getElementById('d-blist').innerHTML=room.bans.map((id,i)=>{const cat=CATS.find(c=>c.id===id),p=banSeq[i];return`<div class="ditem">🚫 ${cat?.icon} ${cat?.name}<span style="margin-left:auto;opacity:.5;font-size:.7rem">${p?.avatar||''}</span></div>`;}).join('')||'<div class="ditem">ยังไม่มี</div>';
   document.getElementById('d-plist').innerHTML=room.picks.map((id,i)=>{const cat=CATS.find(c=>c.id===id),p=pickSeq[i];return`<div class="ditem">✅ ${cat?.icon} ${cat?.name}<span style="margin-left:auto;opacity:.5;font-size:.7rem">${p?.avatar||''}</span></div>`;}).join('')||'<div class="ditem">ยังไม่มี</div>';
 }
